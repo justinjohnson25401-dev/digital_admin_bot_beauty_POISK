@@ -2,6 +2,8 @@
 import argparse
 import csv
 import time
+import re
+import traceback
 from urllib.parse import quote
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -67,96 +69,129 @@ def handle_cookie_banner(driver):
         print("Cookie banner not found or already closed.")
 
 def scroll_and_load_more(driver, target_count=100):
-    """Прокручивает левую панель, чтобы подгрузить больше компаний"""
-    results_container = driver.find_element(By.CSS_SELECTOR, "div._1tdquig")
+    """Прокручивает и загружает карточки"""
+    print("Waiting for first cards to appear...")
+    try:
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/firm/']"))
+        )
+        print("First cards found!")
+    except TimeoutException:
+        print("ERROR: No cards found after 20 seconds")
+        try:
+            page_content = driver.find_element(By.TAG_NAME, "body").text[:1000]
+            print(f"Page preview: {page_content}")
+        except:
+            pass
+        return []
+    
+    results_container = None
+    try:
+        container_selectors = ["div._1tdquig", "div[class*='search']", "div[class*='results']", "div[class*='list']"]
+        for sel in container_selectors:
+            try:
+                results_container = driver.find_element(By.CSS_SELECTOR, sel)
+                print(f"Found scroll container: {sel}")
+                break
+            except:
+                continue
+    except:
+        print("Container not found, will use window scroll")
     
     previous_count = 0
     no_change_count = 0
     
-    while no_change_count < 5:  # Если 5 раз подряд количество не изменилось - останавливаемся
-        # Получаем текущее количество карточек
-        cards = driver.find_elements(By.CSS_SELECTOR, "div._1kfg6ff")
+    while no_change_count < 5:
+        cards = driver.find_elements(By.CSS_SELECTOR, "a[href*='/firm/']")
         current_count = len(cards)
         
-        print(f"Loaded {current_count} companies so far...")
+        print(f"Loaded {current_count} cards (target: {target_count})")
         
         if current_count >= target_count:
-            print(f"Reached target: {target_count} companies")
             break
         
         if current_count == previous_count:
             no_change_count += 1
-            print(f"No new companies loaded ({no_change_count}/5)")
         else:
             no_change_count = 0
-            previous_count = current_count
         
-        # Прокручиваем контейнер вниз
-        driver.execute_script(
-            "arguments[0].scrollTop = arguments[0].scrollHeight", 
-            results_container
-        )
-        time.sleep(2)  # Даём время на подгрузку
+        previous_count = current_count
+        
+        if results_container:
+            driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", results_container)
+        else:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        
+        time.sleep(2)
     
-    final_cards = driver.find_elements(By.CSS_SELECTOR, "div._1kfg6ff")
-    print(f"Total companies found after scrolling: {len(final_cards)}")
+    final_cards = driver.find_elements(By.CSS_SELECTOR, "a[href*='/firm/']")
+    print(f"Total cards after scrolling: {len(final_cards)}")
     return final_cards
 
 def parse_companies(driver, limit):
-    """Парсит компании из левой панели с прокруткой"""
+    """Парсит компании из ссылок на фирмы"""
     results = []
-    
     try:
-        # Сначала прокручиваем и загружаем все карточки
         cards = scroll_and_load_more(driver, target_count=limit)
+        if not cards:
+            print("ERROR: No cards found!")
+            return []
         
-        print(f"Starting to parse {min(len(cards), limit)} companies...")
+        print(f"\nParsing {min(len(cards), limit)} companies...")
         
-        # Парсим каждую карточку
         for i, card in enumerate(cards[:limit]):
-            name = None
             try:
-                name_el = card.find_element(By.CSS_SELECTOR, "div._zjunba")
-                name = name_el.text.strip()
-            except:
-                print(f"Card {i+1}: No name found, skipping")
+                name = card.text.strip()
+                if not name or len(name) < 2:
+                    try:
+                        name = card.get_attribute("aria-label") or card.get_attribute("title")
+                    except: pass
+                
+                if not name or len(name) < 2:
+                    try:
+                        spans = card.find_elements(By.TAG_NAME, "span")
+                        for span in spans:
+                            text = span.text.strip()
+                            if text and len(text) > 2:
+                                name = text
+                                break
+                    except: pass
+                
+                if not name or len(name) < 2:
+                    print(f"Card {i+1}: No valid name found, skipping")
+                    continue
+                
+                firm_url = card.get_attribute("href") or ""
+                address, category, rating = "", "", ""
+                
+                try:
+                    parent = card.find_element(By.XPATH, "./ancestor::div[div[contains(@class, '_zjunba')] or div[contains(@class, '_1idnaau')]]")
+                    full_text = parent.text
+                    lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+                    
+                    if len(lines) > 1 and lines[0] == name:
+                        if len(lines) > 1 and lines[1] != name: category = lines[1]
+                        if len(lines) > 2:
+                            potential_address = lines[2]
+                            if not any(x in potential_address for x in ['оценок', 'отзывов', 'Премия']):
+                                address = potential_address
+
+                    rating_match = re.search(r'\d\.\d+', full_text)
+                    if rating_match: rating = rating_match.group()
+                except: pass
+                
+                results.append({"name": name, "address": address, "category": category, "rating": rating, "url": firm_url})
+                print(f"✓ Parsed {i+1}/{min(len(cards), limit)}: {name}")
+                
+            except Exception as e:
+                print(f"✗ Error parsing card {i+1}: {e}")
                 continue
-            
-            # Остальные поля - опциональные
-            address = ""
-            try:
-                address_el = card.find_element(By.CSS_SELECTOR, "._1p8iqih")
-                address = address_el.text.strip()
-            except:
-                pass
-            
-            category = ""
-            try:
-                category_el = card.find_element(By.CSS_SELECTOR, "._1l31g2v")
-                category = category_el.text.strip()
-            except:
-                pass
-            
-            rating = ""
-            try:
-                rating_el = card.find_element(By.CSS_SELECTOR, "._v7xwl8")
-                rating = rating_el.text.strip()
-            except:
-                pass
-            
-            results.append({
-                "name": name,
-                "address": address,
-                "category": category,
-                "rating": rating
-            })
-            
-            print(f"Parsed {i+1}/{min(len(cards), limit)}: {name}")
         
-        print(f"Successfully parsed {len(results)} companies")
+        print(f"\n✓ Successfully parsed {len(results)} companies out of {len(cards)} found")
         
     except Exception as e:
-        print(f"Error during parsing: {e}")
+        print(f"FATAL ERROR: {e}")
+        traceback.print_exc()
     
     return results
 
@@ -176,7 +211,7 @@ def main():
     results = parse_companies(driver, args.limit)
 
     if results:
-        fieldnames = ['name', 'address', 'category', 'rating']
+        fieldnames = ['name', 'address', 'category', 'rating', 'url']
         print(f"Saving {len(results)} results to {args.output}")
         with open(args.output, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
