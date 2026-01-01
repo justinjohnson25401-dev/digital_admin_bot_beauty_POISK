@@ -33,6 +33,7 @@ def parse_companies(driver, limit):
     results = []
     try:
         # 1. Wait for the company cards to be present in the left panel
+        print("Waiting for company cards to appear...")
         WebDriverWait(driver, 20).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div._1kfg6ff"))
         )
@@ -89,8 +90,11 @@ def main():
     
     print(f"Navigating to: {search_url}")
     driver.get(search_url)
+
+    # Wait for the page to load and handle any initial pop-ups/overlays
+    print("Waiting 10 seconds for the page to stabilize...")
+    time.sleep(10)
     
-    # This replaces the old click-based logic
     results = parse_companies(driver, args.limit)
     
     # Console output for successfully parsed items
