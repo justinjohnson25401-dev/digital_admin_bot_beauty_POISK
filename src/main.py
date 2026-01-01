@@ -16,7 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 
 # --- Global Settings ---
 OUTPUT_FOLDER = "parsed_data"
@@ -113,18 +113,17 @@ def retry(max_attempts=3, delay=0.5, backoff=2):
     return decorator
 
 def setup_driver():
-    """Initializes and returns a headless Chrome WebDriver."""
+    """Initializes and returns a Chrome WebDriver."""
     logger.info("Initializing WebDriver...")
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--headless=new") # Disabled for debugging
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    # Add other options for stability and performance as in the original script
     
     try:
         driver = webdriver.Chrome(options=chrome_options)
-        driver.set_page_load_timeout(20)
+        driver.set_page_load_timeout(30)
         return driver
     except Exception as e:
         logger.error(f"Error creating WebDriver: {e}")
@@ -135,7 +134,7 @@ def setup_driver():
 def extract_company_details(driver, company_url):
     """Extracts detailed information from a company's 2GIS page."""
     driver.get(company_url)
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "._1rkbbi0x")))
+    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='_z9f3z9']")))
 
     details = {
         "phones": [],
@@ -147,20 +146,21 @@ def extract_company_details(driver, company_url):
 
     # Extract phones
     try:
-        phone_elements = driver.find_elements(By.CSS_SELECTOR, "._b0ke8 a[href^='tel:']")
+        phone_elements = driver.find_elements(By.CSS_SELECTOR, "div[class*='_b0ke8'] a[href^='tel:']")
         details["phones"] = list(set([elem.get_attribute("href").replace("tel:", "") for elem in phone_elements]))
     except Exception:
-        pass # Phones might not be available
+        pass
 
     # Extract site and socials
     try:
-        link_elements = driver.find_elements(By.CSS_SELECTOR, "._172gbf8 a")
+        link_elements = driver.find_elements(By.CSS_SELECTOR, "div[class*='_13ayb0w'] a")
         for link in link_elements:
             href = link.get_attribute("href")
             if not href:
                 continue
             if "vk.com" in href or "instagram.com" in href or "facebook.com" in href:
-                details["socials"].append(href)
+                if href not in details["socials"]:
+                    details["socials"].append(href)
             elif "2gis.ru" not in href and "tel:" not in href and "mailto:" not in href:
                 details["site"] = href
     except Exception:
@@ -168,13 +168,13 @@ def extract_company_details(driver, company_url):
 
     # Extract schedule
     try:
-        details["schedule"] = driver.find_element(By.CSS_SELECTOR, "._ksc2xc").text
+        details["schedule"] = driver.find_element(By.CSS_SELECTOR, "div[class*='_p698x2']").text
     except Exception:
         pass
 
     # Extract description
     try:
-        details["description"] = driver.find_element(By.CSS_SELECTOR, "._14quei").text
+        details["description"] = driver.find_element(By.CSS_SELECTOR, "div[class*='_h29xsh']").text
     except Exception:
         pass
         
@@ -200,14 +200,12 @@ def main():
     logger.info(f"  Output File: {args.output}")
     logger.info(f"  Format: {args.format}")
 
-    # Load configuration
     config = load_config(CONFIG_FILE)
     segment_config = config["segments"].get(args.segment)
     if not segment_config:
         logger.error(f"Segment '{args.segment}' not found in the configuration file.")
         return
 
-    # Initialize WebDriver
     driver = setup_driver()
     all_results = []
     
@@ -221,39 +219,48 @@ def main():
             
             driver.get("https://2gis.ru")
             try:
-                search_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input._cu5ae4"))
+                search_input = WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='Поиск в 2ГИС']"))
                 )
                 search_input.clear()
                 search_input.send_keys(search_query)
                 search_input.send_keys(Keys.ENTER)
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div._1kf6gff"))
+                WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='_1n5st2s']"))
                 )
-            except Exception as e:
-                logger.error(f"Failed to perform search for \'{search_query}\': {e}")
+                time.sleep(2) # Allow search results to load
+            except (TimeoutException, NoSuchElementException) as e:
+                logger.error(f"Failed to perform search for '{search_query}': {type(e).__name__} - {e}")
                 continue
 
-            # Scroll and collect company items
-            # (Simplified for this example - a more robust implementation would handle pagination)
-            
             last_height = driver.execute_script("return document.body.scrollHeight")
             while len(all_results) < args.limit:
-                company_elements = driver.find_elements(By.CSS_SELECTOR, "div._1kf6gff")
+                company_elements = driver.find_elements(By.CSS_SELECTOR, "div[class*='_awhq0s']")
                 
                 for elem in company_elements:
                     if len(all_results) >= args.limit:
                         break
                     
                     try:
-                        name = elem.find_element(By.CSS_SELECTOR, "._1rehek").text
-                        link = elem.find_element(By.CSS_SELECTOR, "._1rehek").get_attribute("href")
-                        address = elem.find_element(By.CSS_SELECTOR, "._14quei").text
-                        category = elem.find_element(By.CSS_SELECTOR, "._4cxmw7").text
+                        name_elem = elem.find_element(By.CSS_SELECTOR, "a[class*='_1rehek']")
+                        name = name_elem.text
+                        link = name_elem.get_attribute("href")
                         
-                        if link in [res["link"] for res in all_results]:
-                            continue # Skip duplicates
-                            
+                        if not name or not link:
+                            continue
+
+                        address = elem.find_element(By.CSS_SELECTOR, "div[class*='_1p8ik38']").text
+                        
+                        try:
+                            category = elem.find_element(By.CSS_SELECTOR, "span[class*='_m0an35']").text
+                        except NoSuchElementException:
+                            category = "N/A" # Category might not be present
+
+                        if link in [res.get("link") for res in all_results]:
+                            continue
+
+                        logger.info(f"Processing: {name}")
+
                         company_data = {
                             "name": name,
                             "link": link,
@@ -263,73 +270,84 @@ def main():
                             "source": "2gis",
                         }
                         
-                        # Get detailed info
-                        details = extract_company_details(driver, link)
-                        company_data.update(details)
-                        
-                        company_data["has_phone"] = bool(company_data["phones"])
-                        
-                        # Calculate lead score and assign segment
-                        lead_score = calculate_lead_score(company_data, segment_config)
-                        segment = assign_segment(lead_score, segment_config["thresholds"])
-                        
-                        company_data["lead_score"] = lead_score
-                        company_data["segment"] = segment
-                        
-                        # Final data structure
-                        final_data = {
-                            "name": company_data.get("name"),
-                            "city": company_data.get("city"),
-                            "address": company_data.get("address"),
-                            "phones": ",".join(company_data.get("phones", [])),
-                            "site": company_data.get("site"),
-                            "socials": ",".join(company_data.get("socials", [])),
-                            "schedule": company_data.get("schedule"),
-                            "category": company_data.get("category"),
-                            "description": company_data.get("description"),
-                            "link": company_data.get("link"),
-                            "segment": company_data.get("segment"),
-                            "lead_score": company_data.get("lead_score"),
-                            "has_phone": company_data.get("has_phone"),
-                            "source": company_data.get("source"),
-                        }
-                        all_results.append(final_data)
+                        all_results.append(company_data)
 
                     except StaleElementReferenceException:
-                        continue # Element is no longer attached to the DOM, just skip it
+                        continue
                     except Exception as e:
-                        logger.warning(f"Could not process an element: {e}")
+                        logger.warning(f"Could not process an element: {type(e).__name__} - {e}")
 
-                # Scroll down
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(2) # Wait for new items to load
+                time.sleep(3)
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 if new_height == last_height:
-                    break # Reached the end of the results
+                    break
                 last_height = new_height
+        
+        # --- Detail Extraction Loop ---
+        logger.info(f"Collected {len(all_results)} companies. Now extracting details...")
+        for company_data in all_results:
+            if company_data.get("phones"): # Skip if already processed
+                continue
+            try:
+                details = extract_company_details(driver, company_data["link"])
+                company_data.update(details)
+                
+                company_data["has_phone"] = bool(company_data["phones"])
+                
+                lead_score = calculate_lead_score(company_data, segment_config)
+                segment = assign_segment(lead_score, config["thresholds"])
+                
+                company_data["lead_score"] = lead_score
+                company_data["segment"] = segment
+            except Exception as e:
+                logger.error(f"Failed to extract details for {company_data['name']}: {type(e).__name__} - {e}")
+
 
     finally:
         driver.quit()
 
-    # Save results
     if all_results:
         if not os.path.exists(OUTPUT_FOLDER):
             os.makedirs(OUTPUT_FOLDER)
+        
+        # Flatten data for CSV
+        final_results = []
+        for res in all_results:
+            final_results.append({
+                "name": res.get("name"),
+                "city": res.get("city"),
+                "address": res.get("address"),
+                "phones": ",".join(res.get("phones", [])),
+                "site": res.get("site"),
+                "socials": ",".join(res.get("socials", [])),
+                "schedule": res.get("schedule"),
+                "category": res.get("category"),
+                "description": res.get("description"),
+                "link": res.get("link"),
+                "segment": res.get("segment"),
+                "lead_score": res.get("lead_score"),
+                "has_phone": res.get("has_phone"),
+                "source": res.get("source"),
+            })
+
+        output_path = args.output
+        if not output_path.startswith(OUTPUT_FOLDER):
+            output_path = os.path.join(OUTPUT_FOLDER, os.path.basename(output_path))
             
         if args.format == "csv":
-            fieldnames = all_results[0].keys()
-            with open(args.output, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = final_results[0].keys()
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
-                writer.writerows(all_results)
+                writer.writerows(final_results)
         elif args.format == "json":
-            with open(args.output, 'w', encoding='utf-8') as f:
-                json.dump(all_results, f, ensure_ascii=False, indent=4)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(final_results, f, ensure_ascii=False, indent=4)
                 
-        logger.info(f"Successfully parsed and saved {len(all_results)} companies to {args.output}")
+        logger.info(f"Successfully parsed and saved {len(final_results)} companies to {output_path}")
     else:
         logger.info("No companies were parsed.")
 
 if __name__ == "__main__":
     main()
-
