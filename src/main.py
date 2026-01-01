@@ -191,7 +191,7 @@ def scroll_and_parse(driver, selectors, limit):
             print(f"  - Card {i+1} has no name element, skipping.")
             continue
         
-        address, category, rating, url = "", "", "", "", ""
+        address, category, rating, url = "", "", "", ""
         try: address = card.find_element(By.CSS_SELECTOR, selectors['address']).text.strip()
         except: pass
         try: category = card.find_element(By.CSS_SELECTOR, selectors['category']).text.strip()
