@@ -37,14 +37,14 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='2GIS Parser for Beauty Salons/Barber Shops')
     parser.add_argument('--city', type=str, required=True, help='City to search in (in Russian, e.g., "екатеринбург")')
     parser.add_argument('--segment', type=str, default='салон красоты', help='Business segment to search for')
-    parser.add_argument('--limit', type=int, default=10, help='Number of listings to parse')
+    parser.add_argument('--limit', type=int, default=100, help='Number of listings to parse')
     parser.add_argument('--output', type=str, default='output.csv', help='Output CSV file name')
     return parser.parse_args()
 
 def init_driver():
     """Initializes the Selenium WebDriver."""
     options = webdriver.ChromeOptions()
-    # options.add_argument('--headless')
+    # options.add_argument('--headless') # Uncomment for production runs
     driver = webdriver.Chrome(options=options)
     return driver
 
@@ -59,58 +59,105 @@ def handle_cookie_banner(driver):
     """Finds and clicks the cookie consent banner close button if it appears."""
     try:
         cookie_close_button = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "div._1x5s866 > svg"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "div._n1367pl > svg"))
         )
         print("Cookie banner found, closing it...")
         cookie_close_button.click()
     except TimeoutException:
         print("Cookie banner not found or already closed.")
 
-def parse_companies(driver, limit):
-    """Parses company data from the search results using the latest selectors."""
-    results = []
-    try:
-        print("Waiting for company cards to appear...")
-        # Selector from the full HTML provided by the user
-        card_selector = "div._1kf6gff"
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, card_selector))
+def scroll_and_load_more(driver, target_count=100):
+    """Прокручивает левую панель, чтобы подгрузить больше компаний"""
+    results_container = driver.find_element(By.CSS_SELECTOR, "div._1tdquig")
+    
+    previous_count = 0
+    no_change_count = 0
+    
+    while no_change_count < 5:  # Если 5 раз подряд количество не изменилось - останавливаемся
+        # Получаем текущее количество карточек
+        cards = driver.find_elements(By.CSS_SELECTOR, "div._1kfg6ff")
+        current_count = len(cards)
+        
+        print(f"Loaded {current_count} companies so far...")
+        
+        if current_count >= target_count:
+            print(f"Reached target: {target_count} companies")
+            break
+        
+        if current_count == previous_count:
+            no_change_count += 1
+            print(f"No new companies loaded ({no_change_count}/5)")
+        else:
+            no_change_count = 0
+            previous_count = current_count
+        
+        # Прокручиваем контейнер вниз
+        driver.execute_script(
+            "arguments[0].scrollTop = arguments[0].scrollHeight", 
+            results_container
         )
-        cards = driver.find_elements(By.CSS_SELECTOR, card_selector)
-        print(f"Found {len(cards)} companies on the page.")
+        time.sleep(2)  # Даём время на подгрузку
+    
+    final_cards = driver.find_elements(By.CSS_SELECTOR, "div._1kfg6ff")
+    print(f"Total companies found after scrolling: {len(final_cards)}")
+    return final_cards
 
+def parse_companies(driver, limit):
+    """Парсит компании из левой панели с прокруткой"""
+    results = []
+    
+    try:
+        # Сначала прокручиваем и загружаем все карточки
+        cards = scroll_and_load_more(driver, target_count=limit)
+        
+        print(f"Starting to parse {min(len(cards), limit)} companies...")
+        
+        # Парсим каждую карточку
         for i, card in enumerate(cards[:limit]):
-            name, address, category, rating = "Н/Д", "Н/Д", "Н/Д", "Н/Д"
+            name = None
             try:
-                # Updated selectors based on the user-provided HTML
-                name = card.find_element(By.CSS_SELECTOR, "div._zjunba").text.strip()
-                
-                try:
-                    category = card.find_element(By.CSS_SELECTOR, "div._1idnaau").text.strip()
-                except NoSuchElementException:
-                    category = ""
-                
-                address = card.find_element(By.CSS_SELECTOR, "div._klarpw").text.strip()
-
-                try:
-                    rating = card.find_element(By.CSS_SELECTOR, "div._1az2g0c").text.strip()
-                except NoSuchElementException:
-                    rating = ""
-
-                if name and name != "Н/Д":
-                    results.append({
-                        'name': name,
-                        'address': address,
-                        'category': category,
-                        'rating': rating
-                    })
-
-            except Exception as e:
-                # This can happen for ads or other special list items.
-                print(f"Skipping card #{i+1} due to parsing error: {e}")
+                name_el = card.find_element(By.CSS_SELECTOR, "div._zjunba")
+                name = name_el.text.strip()
+            except:
+                print(f"Card {i+1}: No name found, skipping")
                 continue
-    except TimeoutException:
-        print("Timed out: Company cards not found. The page structure may have changed again or there are no results.")
+            
+            # Остальные поля - опциональные
+            address = ""
+            try:
+                address_el = card.find_element(By.CSS_SELECTOR, "._1p8iqih")
+                address = address_el.text.strip()
+            except:
+                pass
+            
+            category = ""
+            try:
+                category_el = card.find_element(By.CSS_SELECTOR, "._1l31g2v")
+                category = category_el.text.strip()
+            except:
+                pass
+            
+            rating = ""
+            try:
+                rating_el = card.find_element(By.CSS_SELECTOR, "._v7xwl8")
+                rating = rating_el.text.strip()
+            except:
+                pass
+            
+            results.append({
+                "name": name,
+                "address": address,
+                "category": category,
+                "rating": rating
+            })
+            
+            print(f"Parsed {i+1}/{min(len(cards), limit)}: {name}")
+        
+        print(f"Successfully parsed {len(results)} companies")
+        
+    except Exception as e:
+        print(f"Error during parsing: {e}")
+    
     return results
 
 def main():
@@ -122,14 +169,11 @@ def main():
     print(f"Navigating to: {search_url}")
     driver.get(search_url)
     
-    # Extended wait for page load and potential cookie banner
     time.sleep(5) 
     handle_cookie_banner(driver)
-    time.sleep(5) # A final delay for safety
+    time.sleep(3)
 
     results = parse_companies(driver, args.limit)
-    
-    print(f"Successfully parsed {len(results)} companies.")
 
     if results:
         fieldnames = ['name', 'address', 'category', 'rating']
