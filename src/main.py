@@ -9,7 +9,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 
 # --- Global Configuration & Dictionaries ---
 
@@ -35,7 +35,7 @@ def discover_selectors(driver):
             'strategy_name': 'Modern Div-based Wrapper',
             'card': "div._1kf6gff",
             'name': "div._zjunba",
-            'address': "span._sfdp8cg", # More specific address selector
+            'address': "span._sfdp8cg",
             'category': "div._1idnaau",
             'rating': "div._1az2g0c",
             'scroll_container': 'div._1r0xc1d'
@@ -138,26 +138,13 @@ def handle_cookie_banner(driver):
 
 def scroll_and_parse(driver, selectors, limit):
     """
-    Scrolls the result list to load more companies and then parses them
-    using the provided selectors.
+    Scrolls the result list by bringing the last element into view, then parses.
     """
     if not selectors:
         print("FATAL: Cannot scroll and parse without valid selectors.")
         return []
 
-    try:
-        scroll_container_selector = selectors['scroll_container']
-        print(f"Waiting for scroll container '{scroll_container_selector}' to be present...")
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, scroll_container_selector))
-        )
-        scroll_container = driver.find_element(By.CSS_SELECTOR, scroll_container_selector)
-        print("Scroll container found.")
-    except TimeoutException:
-        print(f"ERROR: Scroll container '{scroll_container_selector}' not found. Aborting scroll.")
-        return []
-
-    # Scrolling logic
+    # --- Scrolling Logic ---
     previous_card_count = 0
     no_change_strikes = 0
     while no_change_strikes < 5:
@@ -170,25 +157,41 @@ def scroll_and_parse(driver, selectors, limit):
             break
         if current_card_count == previous_card_count:
             no_change_strikes += 1
+            print(f"Scroll attempt {no_change_strikes}/5: No new cards loaded.")
         else:
             no_change_strikes = 0
         
         previous_card_count = current_card_count
-        driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_container)
-        time.sleep(2)
+        
+        try:
+            print("  - Scrolling last card into view...")
+            driver.execute_script("arguments[0].scrollIntoView(true);", cards[-1])
+        except (IndexError, StaleElementReferenceException):
+            print("  - Could not scroll last card. Attempting window scroll.")
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-    # Parsing logic
-    print(f"\n--- Parsing {min(previous_card_count, limit)} Companies ---")
+        time.sleep(2.5)
+
+    # --- Parsing Logic ---
+    print(f"\n--- Parsing up to {limit} Companies ---")
     results = []
     all_cards = driver.find_elements(By.CSS_SELECTOR, selectors['card'])
-    for i, card in enumerate(all_cards[:limit]):
-        name, address, category, rating, url = "", "", "", "", ""
+    
+    for i, card in enumerate(all_cards):
+        if len(results) >= limit:
+            print(f"Reached parsing limit of {limit}.")
+            break
+
         try:
             name = card.find_element(By.CSS_SELECTOR, selectors['name']).text.strip()
+            if not name:
+                print(f"  - Card {i+1} is an ad or empty, skipping.")
+                continue
         except NoSuchElementException:
-            print(f"  - Card {i+1}: Skipping, no name found.")
+            print(f"  - Card {i+1} has no name element, skipping.")
             continue
         
+        address, category, rating, url = "", "", "", "", ""
         try: address = card.find_element(By.CSS_SELECTOR, selectors['address']).text.strip()
         except: pass
         try: category = card.find_element(By.CSS_SELECTOR, selectors['category']).text.strip()
@@ -196,18 +199,16 @@ def scroll_and_parse(driver, selectors, limit):
         try: rating = card.find_element(By.CSS_SELECTOR, selectors['rating']).text.strip()
         except: pass
         try: 
-            # Try to find a link within the card for the URL
             link_element = card.find_element(By.TAG_NAME, 'a')
             url = link_element.get_attribute('href')
         except: 
-            # If card itself isn't 'a', find inner 'a'
             try:
                 inner_link = card.find_element(By.CSS_SELECTOR, "a[href*='/firm/']")
                 url = inner_link.get_attribute('href')
             except: pass
 
         results.append({'name': name, 'address': address, 'category': category, 'rating': rating, 'url': url})
-        print(f"  - Parsed {i+1}: {name}")
+        print(f"  - Parsed {len(results)}/{limit}: {name}")
 
     return results
 
