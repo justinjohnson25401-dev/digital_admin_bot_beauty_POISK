@@ -90,18 +90,18 @@ def main():
     try:
         # Wait for the list of companies to load
         WebDriverWait(driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div._1kf6gff'))
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div[data-index]'))
         )
         time.sleep(5) # Allow some extra time for dynamic content to load
 
-        company_elements = driver.find_elements(By.CSS_SELECTOR, 'div._1kf6gff')
+        company_elements = driver.find_elements(By.CSS_SELECTOR, 'div[data-index]')
         
         print(f"Found {len(company_elements)} companies on the first page.")
 
         for i in range(min(args.limit, len(company_elements))):
             try:
                 # Re-find elements to avoid StaleElementReferenceException
-                elements = driver.find_elements(By.CSS_SELECTOR, 'div._1kf6gff')
+                elements = driver.find_elements(By.CSS_SELECTOR, 'div[data-index]')
                 if i >= len(elements):
                     print("Could not re-find element, skipping.")
                     continue
@@ -148,7 +148,7 @@ def main():
                 # It's good practice to try to go back to the search results
                 driver.get(search_url)
                 WebDriverWait(driver, 20).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div._1kf6gff'))
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'div[data-index]'))
                 )
                 time.sleep(2)
 
