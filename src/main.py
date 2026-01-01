@@ -5,7 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 
 def parse_arguments():
     """Parses command-line arguments."""
@@ -110,7 +110,7 @@ def main():
                 
                 # Scroll element into view
                 driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                time.sleep(1)
+                time.sleep(3) # Increased wait time
 
                 company_name = "Н/Д"
                 try:
@@ -122,9 +122,16 @@ def main():
 
                 print(f"Processing ({i+1}/{args.limit}): {company_name}")
                 
-                # Click the element to open details
-                element.click()
-                time.sleep(2) # Wait for details to potentially load in side panel
+                try:
+                    # Click the element to open details
+                    element.click()
+                    time.sleep(5) # Wait for details to potentially load in side panel
+                except ElementClickInterceptedException:
+                    print(f"Could not click element {i} due to interception, skipping.")
+                    continue
+                except Exception as e:
+                    print(f"An error occurred clicking element {i}: {e}, skipping.")
+                    continue
 
                 company_details = get_company_details(driver)
                 
