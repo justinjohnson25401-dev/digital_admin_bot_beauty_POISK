@@ -112,13 +112,12 @@ def main():
                 driver.execute_script("arguments[0].scrollIntoView(true);", element)
                 time.sleep(3) # Increased wait time
 
-                company_name = "h3"
                 try:
-                    name_element = element.find_element(By.CSS_SELECTOR, 'span._owmyyi span')
-                    company_name = name_element.text.strip()
-                except NoSuchElementException:
-                    print("Could not find company name, skipping.")
-                    continue
+                    company_name_link = element.find_element(By.CSS_SELECTOR, "a[href*='/firm/']")
+                    if company_name_link:
+                        company_name = company_name_link.text.strip()
+                except:
+                    company_name = None
 
                 print(f"Processing ({i+1}/{args.limit}): {company_name}")
                 
