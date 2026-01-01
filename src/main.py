@@ -112,7 +112,7 @@ def main():
                 driver.execute_script("arguments[0].scrollIntoView(true);", element)
                 time.sleep(3) # Increased wait time
 
-                company_name = "Н/Д"
+                 driver.find_element(By.CSS_SELECTOR, 'a[href*="/firm/"]').text
                 try:
                     name_element = element.find_element(By.CSS_SELECTOR, 'span._owmyyi span')
                     company_name = name_element.text.strip()
