@@ -30,13 +30,12 @@ def discover_selectors(driver):
     """
     print("\n--- Discovering Selectors ---")
     
-    # Define several strategies for finding the main components
     selector_strategies = [
         {
-            'strategy_name': 'Modern Link-based (div wrapper)',
+            'strategy_name': 'Modern Div-based Wrapper',
             'card': "div._1kf6gff",
             'name': "div._zjunba",
-            'address': "div._klarpw",
+            'address': "span._sfdp8cg", # More specific address selector
             'category': "div._1idnaau",
             'rating': "div._1az2g0c",
             'scroll_container': 'div._1r0xc1d'
@@ -46,18 +45,9 @@ def discover_selectors(driver):
             'card': "a._1re_r0w",
             'name': "span._1al0wlf",
             'address': "span._1w9o8ge",
-            'category': "span._1w9o8ge", # Often address and category are the same element
+            'category': "span._1w9o8ge",
             'rating': "span._1nqa2pr",
             'scroll_container': 'div._1r0xc1d'
-        },
-        {
-            'strategy_name': 'Legacy Wildcard-based',
-            'card': "div[class*='_card']",
-            'name': "div[class*='_name']",
-            'address': "div[class*='_address']",
-            'category': "div[class*='_category']",
-            'rating': "div[class*='_rating']",
-            'scroll_container': "div[class*='_results']"
         }
     ]
 
@@ -75,7 +65,7 @@ def discover_selectors(driver):
 
 def test_selectors(driver, selectors, max_test=3):
     """
-    Tests a given set of selectors on the first few cards to see if they work.
+    Tests selectors on the first few cards. Passes if at least one card is parsed successfully.
     """
     try:
         cards = driver.find_elements(By.CSS_SELECTOR, selectors['card'])
@@ -85,20 +75,27 @@ def test_selectors(driver, selectors, max_test=3):
         
         print(f"  - Found {len(cards)} potential cards. Testing first {max_test}.")
 
+        success_count = 0
         for i, card in enumerate(cards[:max_test]):
-            name = card.find_element(By.CSS_SELECTOR, selectors['name']).text.strip()
-            address = card.find_element(By.CSS_SELECTOR, selectors['address']).text.strip()
-            
-            if not name or not address:
-                print(f"  - Test failed on card {i+1}: Name or Address is empty.")
-                return False
-            
-            print(f"  - Test on card {i+1} OK: Name='{name}', Address='{address}'")
+            try:
+                name = card.find_element(By.CSS_SELECTOR, selectors['name']).text.strip()
+                address = card.find_element(By.CSS_SELECTOR, selectors['address']).text.strip()
+                
+                if name and address:
+                    print(f"  - Test on card {i+1} OK: Name='{name}', Address='{address}'")
+                    success_count += 1
+                else:
+                    print(f"  - Test on card {i+1} incomplete: Name or Address is empty (likely an ad).")
+            except NoSuchElementException:
+                print(f"  - Could not parse card {i+1} with these selectors (likely an ad).")
+                continue
+        
+        if success_count > 0:
+            return True
+        else:
+            print("  - Test failed: Selectors did not extract a complete item from any of the first cards.")
+            return False
 
-        return True
-    except NoSuchElementException as e:
-        print(f"  - Test failed: A required selector was not found. Details: {e.msg}")
-        return False
     except Exception as e:
         print(f"  - An unexpected error occurred during selector testing: {e}")
         return False
@@ -199,9 +196,15 @@ def scroll_and_parse(driver, selectors, limit):
         try: rating = card.find_element(By.CSS_SELECTOR, selectors['rating']).text.strip()
         except: pass
         try: 
+            # Try to find a link within the card for the URL
             link_element = card.find_element(By.TAG_NAME, 'a')
             url = link_element.get_attribute('href')
-        except: pass
+        except: 
+            # If card itself isn't 'a', find inner 'a'
+            try:
+                inner_link = card.find_element(By.CSS_SELECTOR, "a[href*='/firm/']")
+                url = inner_link.get_attribute('href')
+            except: pass
 
         results.append({'name': name, 'address': address, 'category': category, 'rating': rating, 'url': url})
         print(f"  - Parsed {i+1}: {name}")
@@ -223,7 +226,6 @@ def main():
     handle_cookie_banner(driver)
     time.sleep(3)
 
-    # The new core logic: discover, then parse
     active_selectors = discover_selectors(driver)
     
     results = []
