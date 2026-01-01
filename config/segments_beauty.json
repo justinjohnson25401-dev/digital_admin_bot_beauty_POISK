@@ -1,0 +1,47 @@
+{
+  "segments": {
+    "beauty_micro": {
+      "include_keywords": [
+        "парикмахерская",
+        "барбершоп",
+        "салон красоты",
+        "маникюр",
+        "педикюр",
+        "ногтевая студия",
+        "брови",
+        "ресницы",
+        "косметология",
+        "массаж",
+        "spa",
+        "спа",
+        "эпиляция",
+        "депиляция"
+      ],
+      "exclude_keywords": [
+        "сеть",
+        "федеральная",
+        "клиника",
+        "медицинский центр",
+        "центр",
+        "холдинг",
+        "стоматология"
+      ],
+      "online_booking_keywords": [
+        "yclients",
+        "dikidi",
+        "онлайн-запись"
+      ],
+      "scoring": {
+        "base_beauty": 40,
+        "short_name": 20,
+        "single_address": 20,
+        "has_phone": 10,
+        "has_online_booking": -30
+      },
+      "thresholds": {
+        "beauty_micro": 80,
+        "beauty_mid": 50
+      }
+    }
+  }
+}

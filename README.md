@@ -38,6 +38,30 @@ python src/main.py
 
 Результаты будут сохранены в каталоге `parsed_data/kids_furniture_companies.csv`.
 
+## Использование для beauty‑ниши
+
+Для поиска потенциальных клиентов в бьюти-сфере, используйте следующие команды:
+
+**Пример для Екатеринбурга (CSV):**
+```bash
+python src/main.py \
+  --city "Екатеринбург" \
+  --segment "beauty_micro" \
+  --limit 200 \
+  --output "parsed_data/ekb_beauty_micro.csv" \
+  --format csv
+```
+
+**Пример для Екатеринбурга (JSON):**
+```bash
+python src/main.py \
+  --city "Екатеринбург" \
+  --segment "beauty_micro" \
+  --limit 50 \
+  --output "parsed_data/ekb_beauty_sniper.json" \
+  --format json
+```
+
 ## Структура проекта
 
 ```
@@ -45,6 +69,8 @@ python src/main.py
 ├── src/
 │   └── main.py          # основной скрипт парсинга
 ├── parsed_data/         # результаты работы (создаётся автоматически)
+├── config/
+│   └── segments_beauty.json # конфигурация сегментов и скоринга
 ├── pyproject.toml       # конфигурация проекта и зависимости
 ├── requirements.txt     # список зависимостей
 └── README.md            # документация
