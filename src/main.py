@@ -114,7 +114,7 @@ def main():
 
                 company_name = "Н/Д"
                 try:
-                    name_element = element.find_element(By.CSS_SELECTOR, 'a span')
+                    name_element = element.find_element(By.CSS_SELECTOR, 'span._owmyyi span')
                     company_name = name_element.text.strip()
                 except NoSuchElementException:
                     print("Could not find company name, skipping.")
