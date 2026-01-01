@@ -1,4 +1,4 @@
-# 2gisTrace
+#root > div > div > div._1sf34doj > div._1u4plm2 > div:nth-child(3) > div > div > div:nth-child(2) > div > div > div > div._1tdquig > div._z72pvu > div._3zzdxk > div > div > div > div:nth-child(2) > div > div:nth-child(1) > div# 2gisTrace
 
 Скрипт на Python для автоматического сбора информации о компаниях из каталога [2ГИС](https://2gis.ru).
 Полученные данные сохраняются в формате CSV и могут использоваться для анализа или интеграции в другие системы.

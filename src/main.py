@@ -48,17 +48,17 @@ def parse_companies(driver, limit):
                 name_el = card.find_element(By.CSS_SELECTOR, "div._zjunba")
                 name = name_el.text.strip()
 
-                # Extract address
-                address_el = card.find_element(By.CSS_SELECTOR, "._1p8iqih")
+                # Extract address using the correct selector
+                address_el = card.find_element(By.CSS_SELECTOR, "div._hrgzf4")
                 address = address_el.text.strip()
 
-                # Extract category
-                category_el = card.find_element(By.CSS_SELECTOR, "._1l31g2v")
+                # Extract category using the correct selector
+                category_el = card.find_element(By.CSS_SELECTOR, "div._1idnaau")
                 category = category_el.text.strip()
 
-                # Extract rating (optional)
+                # Extract rating (optional) using the correct selector
                 try:
-                    rating_el = card.find_element(By.CSS_SELECTOR, "._v7xwl8")
+                    rating_el = card.find_element(By.CSS_SELECTOR, "div._1az2g0c")
                     rating = rating_el.text.strip()
                 except NoSuchElementException:
                     rating = "" # No rating found
