@@ -2,16 +2,40 @@
 import argparse
 import csv
 import time
+from urllib.parse import quote
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+# Dictionary to map Russian city names to 2GIS URL slugs
+CITY_SLUGS = {
+    "санкт-петербург": "spb",
+    "москва": "moscow",
+    "новосибирск": "novosibirsk",
+    "екатеринбург": "ekaterinburg",
+    "казань": "kazan",
+    "нижний новгород": "n_novgorod",
+    "красноярск": "krasnoyarsk",
+    "челябинск": "chelyabinsk",
+    "самара": "samara",
+    "уфа": "ufa",
+    "краснодар": "krasnodar",
+    "омск": "omsk",
+    "пермь": "perm",
+    "ростов-на-дону": "rostov",
+    "воронеж": "voronezh",
+    "волгоград": "volgograd",
+    "тюмень": "tyumen",
+    "сочи": "sochi",
+    "тбилиси": "tbilisi"
+}
+
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(description='2GIS Parser for Beauty Salons/Barber Shops')
-    parser.add_argument('--city', type=str, required=True, help='City to search in')
+    parser.add_argument('--city', type=str, required=True, help='City to search in (in Russian)')
     parser.add_argument('--segment', type=str, default='салон красоты', help='Business segment to search for')
     parser.add_argument('--limit', type=int, default=10, help='Number of listings to parse')
     parser.add_argument('--output', type=str, default='output.csv', help='Output CSV file name')
@@ -20,66 +44,58 @@ def parse_arguments():
 def init_driver():
     """Initializes the Selenium WebDriver."""
     options = webdriver.ChromeOptions()
-    # options.add_argument('--headless') # Run in headless mode for production
+    # options.add_argument('--headless')
+    # options.add_argument('--no-sandbox')
+    # options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
     return driver
 
 def build_search_url(city, segment):
-    """Builds the 2GIS search URL."""
-    return f'https://2gis.ru/search/{segment}/rubrics/in/{city}'
+    """Builds the 2GIS search URL with city slug and URL encoding."""
+    city_lower = city.lower()
+    city_slug = CITY_SLUGS.get(city_lower, quote(city_lower)) # Fallback to quoted input if not in dict
+    encoded_segment = quote(segment)
+    return f'https://2gis.ru/{city_slug}/search/{encoded_segment}'
+
+def handle_cookie_banner(driver):
+    """Finds and clicks the cookie consent banner close button if it appears."""
+    try:
+        cookie_close_button = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, 'div._1x5s866 > svg'))
+        )
+        print("Cookie banner found, closing it...")
+        cookie_close_button.click()
+    except TimeoutException:
+        print("Cookie banner not found or already closed.")
 
 def parse_companies(driver, limit):
-    """Parses company data from the left panel without map clicks."""
+    """Parses company data from the search results."""
     results = []
     try:
-        # 1. Wait for the company cards to be present in the left panel
         print("Waiting for company cards to appear...")
         WebDriverWait(driver, 20).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div._1kfg6ff"))
         )
-        # 2. Get the list of company cards
         cards = driver.find_elements(By.CSS_SELECTOR, "div._1kfg6ff")
-        print(f"Found {len(cards)} companies on the first page.")
+        print(f"Found {len(cards)} companies on the page.")
 
-        # 3. Iterate through the limited number of cards
         for i, card in enumerate(cards[:limit]):
-            name, address, category, rating = None, "Н/Д", "Н/Д", ""
+            name, address, category, rating = "Н/Д", "Н/Д", "Н/Д", "Н/Д"
             try:
-                # Use relative find_element from the card element
-                name_el = card.find_element(By.CSS_SELECTOR, "div._zjunba")
-                name = name_el.text.strip()
-
-                # Extract address using the correct selector
-                address_el = card.find_element(By.CSS_SELECTOR, "div._hrgzf4")
-                address = address_el.text.strip()
-
-                # Extract category using the correct selector
-                category_el = card.find_element(By.CSS_SELECTOR, "div._1idnaau")
-                category = category_el.text.strip()
-
-                # Extract rating (optional) using the correct selector
+                name = card.find_element(By.CSS_SELECTOR, "div._zjunba").text.strip()
+                address = card.find_element(By.CSS_SELECTOR, "div._hrgzf4").text.strip()
+                category = card.find_element(By.CSS_SELECTOR, "div._1idnaau").text.strip()
                 try:
-                    rating_el = card.find_element(By.CSS_SELECTOR, "div._1az2g0c")
-                    rating = rating_el.text.strip()
+                    rating = card.find_element(By.CSS_SELECTOR, "div._1az2g0c").text.strip()
                 except NoSuchElementException:
-                    rating = "" # No rating found
+                    rating = ""
 
-                if name:
-                    results.append({
-                        'name': name,
-                        'address': address,
-                        'category': category,
-                        'rating': rating
-                    })
-
+                if name and name != "Н/Д":
+                    results.append({'name': name, 'address': address, 'category': category, 'rating': rating})
             except Exception as e:
-                # 4. Log errors for a specific card and continue
                 print(f"Error parsing card #{i+1}: {e}")
-                continue
-    
     except TimeoutException:
-        print("Timed out: Company cards not found in the left panel.")
-
+        print("Timed out: Company cards not found.")
     return results
 
 def main():
@@ -90,27 +106,21 @@ def main():
     
     print(f"Navigating to: {search_url}")
     driver.get(search_url)
-
-    # Wait for the page to load and handle any initial pop-ups/overlays
-    print("Waiting 10 seconds for the page to stabilize...")
-    time.sleep(10)
     
+    time.sleep(3) 
+    handle_cookie_banner(driver)
+    time.sleep(3)
+
     results = parse_companies(driver, args.limit)
     
-    # Console output for successfully parsed items
-    successfully_parsed = sum(1 for r in results if r.get('name'))
-    print(f"Successfully parsed {successfully_parsed} companies.")
+    print(f"Successfully parsed {len(results)} companies.")
 
-    # Save results to CSV
     if results:
         print(f"Saving {len(results)} results to {args.output}")
-        try:
-            with open(args.output, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=['name', 'address', 'category', 'rating'])
-                writer.writeheader()
-                writer.writerows(results)
-        except IOError as e:
-            print(f"Error writing to file {args.output}: {e}")
+        with open(args.output, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['name', 'address', 'category', 'rating'])
+            writer.writeheader()
+            writer.writerows(results)
     
     print("Closing the browser.")
     driver.quit()
