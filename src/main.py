@@ -226,7 +226,7 @@ def main():
                 search_input.send_keys(search_query)
                 search_input.send_keys(Keys.ENTER)
                 WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='_1n5st2s']"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='_awhq0s']"))
                 )
                 time.sleep(2) # Allow search results to load
             except (TimeoutException, NoSuchElementException) as e:
